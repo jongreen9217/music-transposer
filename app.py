@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static')
-CORS(app)
+CORS(app, origins=["https://music-transposer.onrender.com"])
 
 # Configure Tesseract path (Render will install it during build)
 TESSERACT_PATH = '/usr/bin/tesseract'
