@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Score Transposer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 4px;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+            background-color: #fafafa;
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            background-color: #e1e1e1;
+            border-color: #999;
+        }
+        select, button {
+            padding: 8px 16px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #preview {
+            margin-top: 20px;
+            max-width: 100%;
+            overflow: auto;
+        }
+        .error {
+            color: #d32f2f;
+            background-color: #ffebee;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .loading.visible {
+            display: block;
+        }
+        progress {
+            width: 100%;
+            height: 10px;
+            margin: 10px 0;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status.success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .file-info {
+            margin: 10px 0;
+            font-size: 0.9em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Music Score Transposer</h1>
+        
+        <div class="drop-zone" id="dropZone">
+            <p>Drag and drop your PDF music score here or click to select</p>
+            <input type="file" id="fileInput" accept=".pdf" style="display: none">
+        </div>
+
+        <div class="file-info" id="fileInfo"></div>
+
+        <div>
+            <label for="fromKey">From Key:</label>
+            <select id="fromKey">
+                <option value="C">C</option>
+                <option value="G">G</option>
+                <option value="D">D</option>
+                <option value="A">A</option>
+                <option value="E">E</option>
+                <option value="B">B</option>
+                <option value="F#">F#</option>
+                <option value="F">F</option>
+                <option value="Bb">Bb</option>
+                <option value="Eb">Eb</option>
+                <option value="Ab">Ab</option>
+                <option value="Db">Db</option>
+                <option value="Gb">Gb</option>
+            </select>
+
+            <label for="toKey">To Key:</label>
+            <select id="toKey">
+                <option value="C">C</option>
+                <option value="G">G</option>
+                <option value="D">D</option>
+                <option value="A">A</option>
+                <option value="E">E</option>
+                <option value="B">B</option>
+                <option value="F#">F#</option>
+                <option value="F">F</option>
+                <option value="Bb">Bb</option>
+                <option value="Eb">Eb</option>
+                <option value="Ab">Ab</option>
+                <option value="Db">Db</option>
+                <option value="Gb">Gb</option>
+            </select>
+
+            <button id="transposeBtn" disabled>Transpose</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <p>Processing your score...</p>
+            <progress></progress>
+        </div>
+
+        <div id="preview"></div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const transposeBtn = document.getElementById('transposeBtn');
+        const preview = document.getElementById('preview');
+        const loading = document.getElementById('loading');
+        const fileInfo = document.getElementById('fileInfo');
+        
+        let currentFile = null;
+
+        // Handle drag and drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file.type === 'application/pdf') {
+                handleFile(file);
+            } else {
+                showError('Please upload a PDF file');
+            }
+        });
+
+        // Handle click to upload
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        });
+
+        async function handleFile(file) {
+            currentFile = file;
+            transposeBtn.disabled = false;
+            
+            // Update file info
+            fileInfo.textContent = `Selected file: ${file.name} (${formatFileSize(file.size)})`;
+            
+            try {
+                // Load and display PDF preview
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+                const page = await pdf.getPage(1);
+                const viewport = page.getViewPort({scale: 1.5});
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                await page.render({
+                    canvasContext: context,
+                    viewport: viewport
+                }).promise;
+                
+                preview.innerHTML = '';
+                preview.appendChild(canvas);
+            } catch (error) {
+                showError('Error loading PDF: ' + error.message);
+            }
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        transposeBtn.addEventListener('click', async () => {
+            if (!currentFile) return;
+
+            const fromKey = document.getElementById('fromKey').value;
+            const toKey = document.getElementById('toKey').value;
+            
+            const formData = new FormData();
+            formData.append('file', currentFile);
+            formData.append('fromKey', fromKey);
+            formData.append('toKey', toKey);
+
+            loading.classList.add('visible');
+            transposeBtn.disabled = true;
+
+            try {
+                const response = await fetch('/transpose', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to transpose score');
+                }
+
+                // Get the transposed PDF
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+
+                // Create download link
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'transposed_score.pdf';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                // Display the transposed PDF
+                handleFile(new File([blob], 'transposed_score.pdf', { type: 'application/pdf' }));
+
+                // Show success message
+                showStatus('Score successfully transposed!', 'success');
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                loading.classList.remove('visible');
+                transposeBtn.disabled = false;
+            }
+        });
+
+        function showError(message) {
+            const error = document.createElement('div');
+            error.className = 'error';
+            error.textContent = message;
+            preview.innerHTML = '';
+            preview.appendChild(error);
+        }
+
+        function showStatus(message, type) {
+            const status = document.createElement('div');
+            status.className = `status ${type}`;
+            status.textContent = message;
+            preview.insertAdjacentElement('beforebegin', status);
+            setTimeout(() => status.remove(), 5000);
+        }
+    </script>
+</body>
+</html>
